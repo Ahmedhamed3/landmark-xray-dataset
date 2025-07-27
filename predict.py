@@ -71,14 +71,38 @@ def denormalize_landmarks(coords, width, height):
     return coords_px
 
 
-def plot_landmarks(img, coords):
-    """Display image with predicted landmark coordinates."""
+def plot_landmarks(img, pred_coords, gt_coords=None):
+    """Display image with predicted and optional ground-truth coordinates."""
     plt.imshow(img)
-    xs = coords[:, 0]
-    ys = coords[:, 1]
-    plt.scatter(xs, ys, c="r", s=20)
+    xs = pred_coords[:, 0]
+    ys = pred_coords[:, 1]
+    plt.scatter(xs, ys, c="r", s=20, label="pred")
+    if gt_coords is not None:
+        plt.scatter(gt_coords[:, 0], gt_coords[:, 1], c="g", s=20, label="gt")
     plt.axis("off")
+    if gt_coords is not None:
+        plt.legend()
     plt.show()
+
+
+def get_ground_truth(dataset, image_path):
+    """Return ground-truth pixel coordinates for the given image path."""
+    image_path = os.path.abspath(image_path)
+    for sample in dataset.samples:
+        if os.path.abspath(sample["image_path"]) == image_path:
+            return sample["coords_px"], sample["mask"]
+    return None, None
+
+
+def mean_point_distance(pred_px, gt_px, mask):
+    """Return average L2 distance between predicted and gt points in pixels."""
+    if gt_px is None or mask is None:
+        return None
+    diff = (pred_px - gt_px) * mask.unsqueeze(-1)
+    dist = torch.sqrt((diff ** 2).sum(dim=-1))
+    if mask.sum() == 0:
+        return None
+    return dist.sum().item() / mask.sum().item()
 
 
 def find_closest_sample(pred_coords, dataset):
@@ -123,8 +147,13 @@ def main():
     # convert normalized predictions back to pixel locations
     pred_px = denormalize_landmarks(pred_norm, orig_w, orig_h)
 
+    gt_px, mask = get_ground_truth(dataset, args.image)
+
+    avg_dist = mean_point_distance(pred_px, gt_px, mask)
+
     if args.output_csv:
         df = pd.DataFrame({
+            "Image": [os.path.basename(args.image)] * len(dataset.labels),
             "PointLabel": dataset.labels,
             "X_pred": pred_px[:, 0].numpy(),
             "Y_pred": pred_px[:, 1].numpy(),
@@ -132,7 +161,10 @@ def main():
         df.to_csv(args.output_csv, index=False)
         print(f"Saved predictions to {args.output_csv}")
 
-    plot_landmarks(pil_img, pred_px)
+    plot_landmarks(pil_img, pred_px, gt_px)
+
+    if avg_dist is not None:
+        print(f"Average distance: {avg_dist:.2f} px")
 
     if not args.no_match:
         sample_id, rmse = find_closest_sample(pred_norm, dataset)
