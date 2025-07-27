@@ -20,17 +20,40 @@ def load_model(model_path, num_landmarks, device):
     return model
 
 
-def preprocess_image(image_path, device):
-    """Open and preprocess image. Returns tensor, width, height, PIL image."""
+def preprocess_image(image_path, device, size=256):
+    """Load and preprocess an image.
+
+    Parameters
+    ----------
+    image_path : str
+        Path to the image on disk.
+    device : torch.device
+        Device where the tensor should be placed.
+    size : int, optional
+        Side length that images were resized to during training.
+
+    Returns
+    -------
+    tensor : torch.Tensor
+        Preprocessed image tensor of shape ``(1, 3, size, size)``.
+    orig_w : int
+        Width of the image before resizing.
+    orig_h : int
+        Height of the image before resizing.
+    pil_img : PIL.Image
+        The original PIL image (not resized) for visualization.
+    """
     img = Image.open(image_path).convert("RGB")
-    w, h = img.size
+    orig_w, orig_h = img.size
+
     transform = transforms.Compose([
-        transforms.Resize((256, 256)),
+        transforms.Resize((size, size)),  # must match training
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
     ])
+
     tensor = transform(img).unsqueeze(0).to(device)
-    return tensor, w, h, img
+    return tensor, orig_w, orig_h, img
 
 
 def predict_landmarks(model, image_tensor):
@@ -38,6 +61,14 @@ def predict_landmarks(model, image_tensor):
     with torch.no_grad():
         preds = model(image_tensor)
     return preds.squeeze(0).cpu()
+
+
+def denormalize_landmarks(coords, width, height):
+    """Convert normalized coordinates back to pixel space."""
+    coords_px = coords.clone()
+    coords_px[:, 0] *= width
+    coords_px[:, 1] *= height
+    return coords_px
 
 
 def plot_landmarks(img, coords):
@@ -83,14 +114,12 @@ def main():
 
     model = load_model(args.model, num_landmarks, device)
 
-    img_tensor, w, h, pil_img = preprocess_image(args.image, device)
+    img_tensor, orig_w, orig_h, pil_img = preprocess_image(args.image, device)
 
     pred_norm = predict_landmarks(model, img_tensor)
 
-    # scale to pixel coordinates
-    pred_px = pred_norm.clone()
-    pred_px[:, 0] *= w
-    pred_px[:, 1] *= h
+    # convert normalized predictions back to pixel locations
+    pred_px = denormalize_landmarks(pred_norm, orig_w, orig_h)
 
     plot_landmarks(pil_img, pred_px)
 
