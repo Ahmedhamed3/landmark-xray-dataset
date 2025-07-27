@@ -16,6 +16,7 @@ def parse_args():
     ap.add_argument('--lr', type=float, default=1e-3)
     ap.add_argument('--backbone', default='resnet18', choices=['resnet18', 'mobilenet_v2'])
     ap.add_argument('--loss', default='mse', choices=['mse', 'smoothl1'])
+    ap.add_argument('--out', default='model.pth', help='where to save trained model')
     return ap.parse_args()
 
 
@@ -43,10 +44,11 @@ def main():
     for epoch in range(args.epochs):
         model.train()
         total_loss = 0
-        for imgs, coords, mask in loader:
+        for imgs, coords_px, mask, width, height in loader:
             imgs = imgs.to(device)
-            coords = coords.to(device)
             mask = mask.to(device).unsqueeze(-1)
+            wh = torch.stack([width, height], dim=-1).to(device).unsqueeze(1)
+            coords = coords_px.to(device) / wh
             preds = model(imgs)
             loss = criterion(preds, coords)
             loss = (loss * mask).mean()
@@ -62,16 +64,21 @@ def main():
     rmse = 0
     count = 0
     with torch.no_grad():
-        for imgs, coords, mask in loader:
+        for imgs, coords_px, mask, width, height in loader:
             imgs = imgs.to(device)
-            coords = coords.to(device)
             mask = mask.to(device).unsqueeze(-1)
+            wh = torch.stack([width, height], dim=-1).to(device).unsqueeze(1)
+            coords = coords_px.to(device) / wh
             preds = model(imgs)
             diff = ((preds - coords) ** 2 * mask).sum(dim=-1)
             rmse += torch.sqrt(diff).sum().item()
             count += mask.sum().item()
     rmse = rmse / count if count > 0 else 0
     print(f"RMSE: {rmse:.6f}")
+
+    # Save trained weights for inference
+    torch.save(model.state_dict(), args.out)
+    print(f"Model saved to {args.out}")
 
 
 if __name__ == "__main__":
