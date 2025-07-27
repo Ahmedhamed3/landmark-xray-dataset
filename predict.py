@@ -88,7 +88,8 @@ def find_closest_sample(pred_coords, dataset):
     sample_ids = sorted(dataset.data["SampleID"].unique())
     for sample_id, sample in zip(sample_ids, dataset.samples):
         mask = sample["mask"]
-        coords = sample["coords"]
+        wh = torch.tensor([sample["width"], sample["height"]])
+        coords = sample["coords_px"] / wh
         diff = ((pred_coords - coords) ** 2).sum(dim=-1).sqrt()
         rmse = (diff * mask).sum() / mask.sum()
         if best_rmse is None or rmse < best_rmse:
@@ -104,6 +105,7 @@ def main():
     ap.add_argument("--data-dir", default=".", help="Dataset directory with csv")
     ap.add_argument("--csv", default="landmark_summary.csv", help="CSV file")
     ap.add_argument("--no-match", action="store_true", help="Skip identity match")
+    ap.add_argument("--output-csv", default=None, help="Optional path to save predicted coordinates")
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -120,6 +122,15 @@ def main():
 
     # convert normalized predictions back to pixel locations
     pred_px = denormalize_landmarks(pred_norm, orig_w, orig_h)
+
+    if args.output_csv:
+        df = pd.DataFrame({
+            "PointLabel": dataset.labels,
+            "X_pred": pred_px[:, 0].numpy(),
+            "Y_pred": pred_px[:, 1].numpy(),
+        })
+        df.to_csv(args.output_csv, index=False)
+        print(f"Saved predictions to {args.output_csv}")
 
     plot_landmarks(pil_img, pred_px)
 
