@@ -11,22 +11,28 @@ from model import LandmarkNet
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument('--data-dir', default='.')
-    ap.add_argument('--epochs', type=int, default=10)
+    ap.add_argument('--epochs', type=int, default=50,
+                    help='number of training epochs')
     ap.add_argument('--batch-size', type=int, default=4)
     ap.add_argument('--lr', type=float, default=1e-3)
     ap.add_argument('--backbone', default='resnet18', choices=['resnet18', 'mobilenet_v2'])
     ap.add_argument('--loss', default='mse', choices=['mse', 'smoothl1'])
     ap.add_argument('--out', default='model.pth', help='where to save trained model')
+    ap.add_argument('--flip', action='store_true',
+                    help='apply random horizontal flip augmentation')
     return ap.parse_args()
 
 
 def main():
     args = parse_args()
-    transform = transforms.Compose([
-        transforms.Resize((256,256)),
+    transform_list = [transforms.Resize((256, 256))]
+    if args.flip:
+        transform_list.append(transforms.RandomHorizontalFlip())
+    transform_list += [
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-    ])
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+    ]
+    transform = transforms.Compose(transform_list)
     dataset = LandmarkDataset(args.data_dir, transform=transform)
     num_landmarks = len(dataset.labels)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
